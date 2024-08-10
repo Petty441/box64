@@ -1,0 +1,66 @@
+name: Build Mesa and Libdrm
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        os: [ubuntu-latest]
+        architecture: [amd64, i386]
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.x'
+
+    - name: Install dependencies
+      run: |
+        sudo dpkg --add-architecture ${{ matrix.architecture }} && sudo apt-get update
+        sudo apt-get install -y libc6-dev:amd64 libc6-dev:i386
+        sudo apt-get install -y python3-pip
+
+    - name: Install LLVM and GCC
+      run: |
+        sudo apt-get install -y llvm-${{ inputs.llvm_version }} gcc-${{ inputs.gcc_version }}
+
+    - name: Clone Mesa and libdrm repositories
+      run: |
+        git clone --depth=${{ inputs.git_depth }} --branch=${{ inputs.git_branch_mesa }} ${{ inputs.git_repo_mesa }} ~/mesa-git
+        git clone --depth=${{ inputs.git_depth }} --branch=${{ inputs.git_branch_libdrm }} ${{ inputs.git_repo_libdrm }} ~/libdrm-git
+
+    - name: Build Mesa and libdrm
+      run: |
+        cd ~/mesa-git
+        mkdir -p builddir
+        cd builddir
+        meson --prefix=$HOME/mesa-git/installdir \
+              --buildtype=${{ inputs.buildtype }} \
+              -Dgallium-drivers=${{ inputs.gallium_drivers }} \
+              -Dvulkan-drivers=${{ inputs.vulkan_drivers }} \
+              -Dllvm=true
+        ninja
+        ninja install
+
+    - name: Run tests
+      run: |
+        export LD_LIBRARY_PATH=$HOME/mesa-git/installdir/lib:$LD_LIBRARY_PATH
+        glxinfo
+        vulkaninfo
+        vkcube
+
+    - name: Cleanup
+      run: |
+        rm -rf ~/mesa-git ~/libdrm-git
